@@ -1,5 +1,4 @@
 
-
 #include "contiki.h"
 #include "net/rime/rime.h"
 #include "platform/sky/dev/light-sensor.h"
@@ -13,34 +12,47 @@ AUTOSTART_PROCESSES(&example_unicast_process);
 /*---------------------------------------------------------------------------*/
 static struct unicast_conn uc;
 char hops = 126;
+char sequence=0;
 linkaddr_t returnAddr;
 //preinitialise to prevent dividing by 0
 int values[10]={32,45,168,221,50,45,87,96,103,130};
 int index=0;
+static struct broadcast_conn broadcast;
 static void
 broadcast_recv(struct broadcast_conn *c, const linkaddr_t *from)
 {
   printf("broadcast message received from %d.%d: '%s'\n",
          from->u8[0], from->u8[1], (char *)packetbuf_dataptr());
+	char* message = (char *)packetbuf_dataptr();
 
-	if(packetbuf_dataptr[0]=='H'){
-		if((packetbuf_dataptr[1]-'0')<hops){
-			hops = (packetbuf_dataptr[1] - '0') + 1;
-			linkaddr_t addr;
+	if(message[0]=='W' && hops != 126){
+		hops = 126;
+		broadcast_send(&broadcast);
+	}
+
+	if(message[0]=='H'){
+		if((message[1]-'0')<hops){
+			hops = (message[1] - '0') + 1;
 			returnAddr.u8[0] = from->u8[0];
 	    		returnAddr.u8[1] = from->u8[1];
-			char output[4];
-			sprintf('H', "%d", hops);
-			packetbuf_copyfrom(output, 4);
+			char output[3];
+			output[0]='H';
+			output[1]='0'+hops;
+			output[2]='\0';
+			packetbuf_copyfrom(output, 3);
 			
-	     		 broadcast_send(&broadcast);
+	     		broadcast_send(&broadcast);
 	    		
-			printf("my hop is %d", hops);
+			printf("my hop is %d\n", hops);
 		}
 	}
 	
-	if(!strcmp("FEED ME!", (char *)packetbuf_dataptr())){
-	linkaddr_t addr;
+	if(message[0]=='D'){
+		if((message[1]-'0')>sequence || (sequence==9 && message[1]=='0')){
+	sequence = message[1] - '0';
+	if(sequence==9 && message[1]=='0'){sequence = 0;}
+	//printf("sequence: %d\n", sequence);
+	broadcast_send(&broadcast);
 	int val=0;
 	int i=0;
 	while(i<10){
@@ -56,22 +68,34 @@ broadcast_recv(struct broadcast_conn *c, const linkaddr_t *from)
 	
     	packetbuf_copyfrom(output, 4);
 
-	addr.u8[0] = from->u8[0];
-    	addr.u8[1] = from->u8[1];
 
-	if(!linkaddr_cmp(&addr, &linkaddr_node_addr)) {
-     		 unicast_send(&uc, &returnAddr);
+	if(!linkaddr_cmp(&returnAddr, &linkaddr_node_addr)) {
+     		unicast_send(&uc, &returnAddr);
+		printf("data reply sent\n");
     	}
+	}
+	printf("sequence: %d\n", sequence);
 }	
 }
 
 static const struct broadcast_callbacks broadcast_call = {broadcast_recv};
-static struct broadcast_conn broadcast;
+
 static void
 recv_uc(struct unicast_conn *c, const linkaddr_t *from)
 {
-  printf("unicast message received from %d.%d\n",
-	 from->u8[0], from->u8[1]);
+  printf("unicast message received from %d.%d: '%s'\n",
+	 from->u8[0], from->u8[1], (char *)packetbuf_dataptr());
+	char* output;
+	
+	output = packetbuf_dataptr();
+	
+    	packetbuf_copyfrom(output, 4);
+
+
+	if(!linkaddr_cmp(&returnAddr, &linkaddr_node_addr)) {
+     		unicast_send(&uc, &returnAddr);
+		printf("data reply sent\n");
+    	}
 }
 static const struct unicast_callbacks unicast_callbacks = {recv_uc};
 
